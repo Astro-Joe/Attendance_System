@@ -1,0 +1,376 @@
+commit feeb7a7f41209fd9c0951f9e8c9baf206259d455
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Fri Sep 4 13:43:16 2026 +0100
+
+    Main.ino contains firstly, the other header files which are:
+    - systemGlobal.hpp
+    - display.hpp
+    - peripheral.hpp
+    - accessControl.hpp
+    - newtwork.hpp
+    - fingerprint.hpp
+    Most variables that were forward declared in systemGlobal.hpp are
+    properly declared here.
+    It would been seen later on that this file contributes majorly towards
+    the management and effective tracking of the state of the system at any
+    given point in time and also the User Interface (UI) {in conjunction with
+    display.hpp}.
+    There are two main functions here: void setup() and void loop() and
+    would be considered in some details below:
+    
+    ****void setup(): Contains code that run on startup, which includes:
+    - Initialization of serial monitor, LCD, I2C and SPI communication
+      pins, check_LED and customKeypad library.
+    - Then, the connected peripherals (RTC, SD module, keypad and
+      fingerprint scanner) are initialized. All files used by the system are
+      created here. {see peripheral.hpp, fingerprint.hpp and network.hpp}
+    
+    ****void loop(): After startup the rest of the functionality of the
+    system is here. I'll be discussing about some important functionalities
+    here especially the use of the boolean flags...
+    PS: The void loop is an all encompassing "while loop" function which cascades
+    deeper into the system logic.
+    
+    1. Starting from the void loop - handle_background_tasks() is used for
+       dynamically changing the time per minute {see systemGlobal.hpp} and
+       may in future be used to handle other background tasks.
+       This is followed by the system continuously running the loop waiting
+       for a keypad input.
+    
+    2. bool refresh_screen controls the display of new screens. Each screen
+       is linked to a state in enum mainPage and with an instance of
+       variable mainState {see systemGlobal.hpp}. The change in the value of refresh
+       screen is locked to key presses <= "3" to prevent the continuous refresh of the
+       mainpage when other keys are pressed, putting strain on the microcontroller
+       (I'm kinda finding it hard to justify this bit).
+    
+    3. Based on the value of the mainState several functions are run. I will
+       be considering the scenerio where the mainstate is ATTENDANCE_PAGE as
+       this is the most complex scenerio
+       -- Given the case where the mainstate = ATTENDANCE_PAGE,
+       attendancePage() is called {see display.hpp} and a couple of boolean flag
+       values are set:
+       ** refresh_screen = false: this is to set the refresh flag to the
+       default state and make sure its only toggled when needed.
+    
+       ** waitingFlag_3 = true: for the while loop for the keypad input from
+       the keypad and handle_background_tasks() {see systemGlobal.hpp}.
+    
+       ** keypad_enable = true: this signifies that no attendance session is
+       in progress and the original attendace page menu is displayed rather
+       than attendancePage_mod() {see display.hpp}.
+    
+       ** waitingFlag_4 = false: This monitors the attendance session timer
+       and activates the automatic end of an attendance session when the
+       time elapses. Value = false signifies that the timer is not currently
+       running.
+    
+       -- Depending on the key pressed, the subState variable is changed to
+       different states in the enum subPage {see systemGlobal.hpp}.
+    
+       -- In each subState the keypad_enable flag is used to track
+       if an attendance session is ongoing or not, and different actions are
+       carried out depending on that.
+            -- For subState = LECTURER_SIGN_IN:
+               if the flag is true, lecturer_sign_in() is called {see
+               display.hpp}, if the sign in is successful its value is set
+               to false, attendance mod is displayed and the timer starts
+               counting. If sign in is unsuccessfully the display remains as
+               previous and nothing changes.
+    
+            -- For subState = STUDENT_SIGN_IN:
+               if the flag is false student_sign_in() is called{see
+               display.hpp}, else "NO ATTENDANCE IN PROGRESS" is printed
+               and the normal attendancePage() menu is displayed.
+    
+            -- For subState = SYS_SETTINGS_MENU:
+               if the security prompt is exited: if the flag is false
+               attendancePage_mod() is displayed; if the value is true,
+               attendacePage() is displayed
+    
+    ---- I will not be going into the functionality of the system settings
+    but there is a feature to keep the hotspot on only while in the system
+    settings page. And depending on whether the keypad_enable flag is false or
+    true the third option in the system settings menu will be "OTHER
+    SETTINGS" or "END SESSION".
+    
+    -- Lastly, there is a while loop that runs when waitingFlag_2 is true
+    and is directly in the void loop bracket. The use of this loop is to
+    return to the main page when the promptInput() or Security() {see network.hpp}
+    returns no value {exception for Security() when subState = SYS_SETTINGS_MENU}.
+
+commit 211ac9ca52d7c2afaeedcbd2964345a50855b752
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Fri Sep 4 07:29:49 2026 +0100
+
+    fingerprint.hpp contains functions for the smooth functioning of the
+    fingerprint scanner. The functions includes:
+    - Fingerprint scanner initialization
+    - Fingerprint registration
+    - Fingerprint recognition
+    - Resetting of fingerprint scanner
+    See more below:
+    
+    **void fingerprint_reg(): Checks if the SD card was initialized at startup because info from the scanner is to be logged on it. It is called in student_signup() {see display.hpp} after student has been validated to be a unique entry {see network.hppfor more details}.
+    There are three steps of scanning the student fingerprint, each having
+    it own collor code on the scanner's ring. If any of the steps failed the
+    fingerprint registration is cancelled. On successful registration the
+    UID is stored in a global variable (storedUID) that is logged on the SD
+    card.
+    
+    **void fingerprint_recog(): It is caled in student_signin(). If the fingerprint is recognized the UID linked to the fingerprint is retrieved abd stored in a global
+    variable (retrievedUID) which is compared to the UIDs in the stored UID file to
+    get the linked matriculation number.
+    Up on failed recognition. either the student's finger was not placed
+    properly or the student hadn't registered.
+    
+    **void reset_scanner(): This is called at startup in the situation where
+    the scanner needs to be wiped clean. In this version it is manual
+    enabled or disabled in the code itself but (prolly V2...) it should be
+    an admin previledge. The function is advised to be used in conjunction
+    with erasing_student_records() and erasinG_lecturer_records() {see
+    network.hpp}, for the system to work normally.
+
+commit e979a1ea7b8b2a14fd34a34a65eb98754d31809b
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Thu Sep 3 02:50:59 2026 +0100
+
+    network.hpp handles the following:
+    - Initialization of SD card module
+    - Hotspot functionality
+    - Creation of files
+    - Logging of lecturer data
+    - Logging of student data
+    - Course validation
+    - Student validation
+    - Attendance logging
+    - Erasing records from SD card
+    - Web server code
+    *****See systemGlobal.hpp for full definition of some functions!
+    Important info to know about the above features would be dicussed below:
+    
+    ****void SD_module_check(): Intializes the SD module and has a check if it
+    wasn't initialized properly. Also has a bool flag to track if it was
+    initialized at startup at any point in the code instead of using the
+    tradtional !sd.begin() check, reducing visible lag in the running of the
+    device.
+    
+    ***void hotspot_setup(): This is used for starting up the hotspot,
+    there's also a function for turning off the hotspot.
+    
+    ****bool create_file("some args"): It checks using the SD card flag whetherit is initialized, there's currently the problem of if the SD card
+    initializes at startup but got disconnected at any other point; there is
+    no feature to detect this yet but a fix is coming.... xD
+    - There's a feature to check if an attendance file has been logged for
+      the day{file name uses a particular format, see display.hpp func. void
+      lecturer_sign_in()}.
+    
+    ****void lecturer_log_data("some args"): It logs lecturer data like
+    course code and course password using the ArduinoJson.h
+    
+    ****void student_log_data("some args") : Also uses ArduinoJson.h to log
+    student data like matriculation number and fingerprint UID in two
+    differnt files, where matric number is key in one and UID is key in the
+    other.
+    
+    ****bool course_validation("some args") (see display.hpp for how the
+    logic is intertwined): It is used in lecturer sign-up
+    and lecturer sign-in to either check if a particular course has been
+    registered before or if a course that is about to record a has been
+    registered initially.
+    The logic goes as thus:
+    - if the state of the device is in LECTURER_SIGN_UP and,
+      -- The course is found, it signals that the course already exists.
+      -- If the course was not found it signals the registration of a new
+         course.
+    
+    - if the state of the device is in LECTURER_SIGN_IN,
+      -- The course exist and matches the password: In this current version,
+         it prints attendance in progress and then cheecks if the attendance
+         file had already existed (see display.hpp) but it supposed to be
+         the other way around. Fix coming in V2....
+      -- The course exists but no password has been inputted it silently passes     that a course is being signed in.
+      -- The course exists and the password entered doesn't match, it throws
+         wrong password.
+      -- The course doesn't exist, it signals that the course wasn't found
+         in the database.
+    
+    - If the state is neither in LECTURER_SIGN_UP or LECTURER_SIGN_IN, we
+      assume the course code and course password is coming from the
+      attendance download webpage. And depending on whether the course was
+      found  and password matches, the course was found and the password
+      didn't match or the course was not found different actions are carried
+      out.
+    
+    - If the target file is unable to be opened, it assumes that there is an
+      error with the SD card.
+    
+    ****bool student_validation("some args"){see display.hpp for details on
+    how its used}: This is used in  student sign-up and student sign-in to
+    prevent multiple registration of student details, to validate student
+    fingerprint UID and to record student data in the attendance.
+    {I'm too tired to do to this like I did for the course_validation,
+    figure it out yourself...}.
+    
+    ****void erasing_student_data() and void erasinG_lecturer_data() are
+    used to wipe all records from the SD card respectively.
+    
+    -
+    -
+    -
+    ====================WEBPAGE HTML===================
+    -
+    -
+    -
+    
+    ****void webpage_connection(): This handles the streaming of the HTML
+    code from the ESP32 to the connected device, recieving of data entered
+    by the user from the webpage abd sending of files to be downloaded on
+    the user's mobile device.
+
+commit fd3d0dac2cd312e38eef108cdfc4c825f7951927
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Tue Sep 1 09:41:42 2026 +0100
+
+    peripheral.hpp contains initialization of peripherals attached to the
+    device. Not alll peripherals are initialized here e.g fingerprint
+    scanner is initialized in fingerpirnt.hpp and SD module is initialized
+    in network.hpp, led status light in Main.ino. Apart from the listed
+    exemptions other peripherals are initialized here.
+    
+    Peripherals initialized here are
+    - Buzzer
+    - DS3231 RTC
+    - Keypad
+    
+    For the RTC and keypad, there are conditons to check if it was
+    initialized or not and if not a warning LED is toggled.
+    
+    void time_update() is also here, but is commented in Main.ino as
+    date and time update will be done void handle_background_tasks() {see
+    systemGlobal.hpp for more details}
+
+commit 0fea1f0f25ade5ea6352e9aae648f6be3723f3e9
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Tue Sep 1 04:56:48 2026 +0100
+
+    accessControl.hpp contains functions that have to do with gettting
+    inputs from the user and also protection for pages that need
+    authorization to be accessed. Two functions are used for every case
+    scenerio, String promptInput("some arg") and String Security("some
+    arg").
+    Important things to know would be discussed below:
+    
+    ************Important things to know*************
+    - String promptInput(String prompt) : This is used for a variety of
+      scenerios like inputting password, course code, matriculation number
+      and timer; with each state controlled by the funcState variable (see
+      enum diffFunc in systemGlobal.hpp).
+      Depending on the function state the logic changes, for example
+    
+      - PASSWD_FUNCTIONALITY accepts password input that must not be greater
+        than or less than 8 characters (throws invalid password otherwise)
+        and then returns the user input as a string which would be logged in
+        the lecturer_data.jsonl.
+      - COURSE_CODE_FUNCTIONALITY accepts course code input that must not be
+        greater or less than 11 charaters(throws invalid course code otherwise)    ,returns the user input as a string which would be logged in
+        lecturer_data.jsonl.
+      - MATRIC_NUMBER_FUNCTIONALITY accepts matric number input that must
+        not be greater or less than 12 characters (throws invalid matric
+        number otherwise) which would be logged in the student_data.jsonl.
+      - TIMER_FUNCTIONALITY converts the string input to integer, there's
+        logic for constraining the time between 10mins and 120mins
+      - Also depending on the state of system the "C - clear" button behaves
+        differently.
+    - String Security(String prompt): This used as the security wherever
+      needded in the code.
+      - When no code input and clear is pressed if in lecturer signin or in
+        system settings behave differently.
+      - The function returns a value even tho the security code is fixed
+        because, depending on whether a session is ongoing or not and the
+        "C" button is pressed when the code input section is empty a
+        different attendance menu page is displayed (see Main.ino for more
+        details on the logic)
+
+commit cf628c97efce3651e3b34bed5e64b11ddb663af6
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Mon Aug 31 04:45:38 2026 +0100
+
+    display.hpp contains functions that have to do with the UI/UX of the
+    whole system. Since there's still going to be a readMe for this repo,
+    I'll be summarizing the "most notable" functions below.
+    
+    ***************Summary of Functions***************
+    - void Main_menu(): This displays the main menu (Lecturer signup,
+      Student signup, attendance page.
+    
+    - void lecturer_signup (): Initializes lookup file to
+      lecturer_data.jsonl, Calls Security() {see accessControl.hpp}, calls
+      promptInput() {see accessControl.hpp} for course code input and course
+      passwd input and validates their input to prevent duplicates by
+      calling course_validation("some args") {see network.hpp}, calls
+      lecturer_log_data() for logging of lecturer data in its file.
+    
+    - void student_signup(): Initializes lookup file to matric_no-key.jsonl,
+      prompt user for matric number using promptInput() and validates using
+      student_validation() {see network.hpp},calls fingerprint_reg() {see
+      fingerprint.hpp} for registration of student's fingerprint, calls
+      student_log_data("some args") to log the data in matric_no-key.jsonl
+      and .UID-key.jsonl respectively.
+    
+    - Got overwhelmed while trying to concluded on what other function is
+      "more notable", see the following:
+      ** void lecturer_signin(): {you can explore the logic of prevention of
+      going back to the main menu once an attendance session had started.
+      Also see the naming of current session file name}
+    
+      ** void student_signin(): {you can explore verification of retrieved UID
+      from fingerprint scanner in the .UID-key.jsonl file [see
+      fingerprint.hpp and network.hpp for more context]}
+    
+      ** void system_settings(): {display for system settings like hotspot,
+      timer, end session and other settings. Depending on whether a session
+      is ongoing or not end session or other settings would be displayed}
+    
+      ** void set_timer(): {for setting how long a a session lasts. Minimum
+      time is 10mins, see promptInput() in accessControl.hpp for more
+      details on the logic}
+
+commit 65b508cc000a8eecf162b11ef0fc8454b2bbbedb
+Author: Astro-Joe <ilemobayojoseph06@gmail.com>
+Date:   Wed Aug 26 05:51:01 2026 +0100
+
+    systemGlobal contains libraries that are used in multiple header files
+    and needs to be global like for the LCD, DS3231 and Keypad.
+    It also contains forward declaration of objects, variables, enums and
+    functions, all used in multiple headers files relating to the main
+    system file "Main.ino".
+    
+    Summary of libraries, variables, objects, enums and functions used
+    **************Libraries***************
+    -Arduino.h:  to initialize arduino syntax in the header file.
+    -LiquidCrystal.h: for LCD displays.
+    -RTClib.h: for DS3231 use to timestampping.
+    -Keypad.h: for keypad inputs.
+    ****************Variables**************
+    -extern String input_course_code
+    -extern String input_course_passwd
+    -extern unsigned long startTime
+    -extern unsigned long elapsedTime
+    -extern bool sdCardFlag : For checking if the SD card is initialized at
+    any point in the system rather than going through the initialization
+    process over again.
+    -extern bool waitingFlag_1
+    -extern bool waitingFlag_2
+    *********Objects*******************
+    -extern RTC_DS3231 rtc; : RTC instance
+    ********Enums************************
+    - enum mainPage: Contains all main screen pages(Lecturer signup, Student signup).
+    - enum subPage: Contains Attendance page menu, student signin, System settings.
+    - enum diffFunc: passwd_functionality, matric_number_functionality, timer_functionality.
+    *********Functions*******************
+    - String promptInput(String prompt); : For prompting user input.
+    - bool create_file(const char *filename, const char *filenanme_2 = "empty.txt"); : Creating files at
+    startup
+    - void reset_scanner(); : Clearing fingerprint scanner data
+    - extern bool student_validation(const char *filename, String input_matric_no = "", String UID = "");
