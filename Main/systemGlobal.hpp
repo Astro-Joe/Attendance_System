@@ -16,7 +16,6 @@
 // #define buzzer 13
 #define check_LED 15
 
-extern RTC_DS3231 rtc;
 extern String input_course_code; // Stores lecturers' course code
 extern String input_course_passwd; // Stores lecturers' assigned course protection code
 extern String matric_no; // Students' inputted matric number
@@ -120,7 +119,7 @@ enum diffFunc {
 diffFunc funcState = DEFAULT_STATE; //=====Object for checking if a function's functionality can be changed======
 
 //======RTC setup======
-
+extern RTC_DS3231 rtc;
 
 // =======LCD Setup=====
 LiquidCrystal lcd(18,13,14,19,16,17); // change d2 and d3 to GPIO 21 and 22 respectively
@@ -138,8 +137,8 @@ char keys[ROWS][COLS] = {
   {'7','8','9'},
   {'C','0','E'}
 };
-byte rowPins[ROWS] = {6, 5, 4, 2}; 
-byte colPins[COLS] = {1, 0, 7};
+byte rowPins[ROWS] = {0, 1, 2,4}; 
+byte colPins[COLS] = {5, 6, 7};
 // byte rowPins[ROWS] = {0, 1, 2, 3}; 
 // byte colPins[COLS] = {4, 5,6};
 Keypad_I2C customKeypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS, KEYPAD_ADDRESS);
